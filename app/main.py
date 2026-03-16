@@ -1,16 +1,18 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 
+from app.api.routes.workflow_runs import router as workflow_run_router
 from app.api.routes.workflows import router as workflow_router
+from app.db import models  # noqa: F401
 from app.db.base import Base
 from app.db.session import engine
-from app.db import models  # noqa: F401
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Distributed Workflow Automation Platform")
 
 app.include_router(workflow_router)
+app.include_router(workflow_run_router)
 
 
 @app.get("/")
