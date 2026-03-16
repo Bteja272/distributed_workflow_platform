@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from sqlalchemy import text
+
+from app.db.base import Base
 from app.db.session import engine
+from app.db import models  # noqa: F401
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Distributed Workflow Automation Platform")
 
@@ -13,6 +18,7 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 @app.get("/db-check")
 def db_check():
