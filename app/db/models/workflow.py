@@ -13,5 +13,5 @@ class Workflow(Base):
     description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    steps = relationship("WorkflowStep", back_populates="workflow", cascade="all, delete-orphan")
+    steps = relationship("WorkflowStep", back_populates="workflow", cascade="all, delete-orphan", order_by="WorkflowStep.step_order",)
     runs = relationship("WorkflowRun", back_populates="workflow", cascade="all, delete-orphan")
