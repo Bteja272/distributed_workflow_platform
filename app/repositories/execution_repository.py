@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.models.task_run import TaskRun
@@ -39,4 +41,42 @@ class ExecutionRepository:
             .options(joinedload(WorkflowRun.task_runs))
             .filter(WorkflowRun.id == run_id)
             .first()
+        )
+
+    def update_workflow_run_status(
+        self,
+        db: Session,
+        workflow_run: WorkflowRun,
+        status: str,
+        completed: bool = False,
+    ) -> None:
+        workflow_run.status = status
+        if completed:
+            workflow_run.completed_at = datetime.utcnow()
+        db.add(workflow_run)
+
+    def update_task_run_status(
+        self,
+        db: Session,
+        task_run: TaskRun,
+        status: str,
+        error_message: str | None = None,
+        started: bool = False,
+        completed: bool = False,
+    ) -> None:
+        task_run.status = status
+        if started:
+            task_run.started_at = datetime.utcnow()
+        if completed:
+            task_run.completed_at = datetime.utcnow()
+        if error_message:
+            task_run.error_message = error_message
+        db.add(task_run)
+
+    def get_task_runs_for_workflow_run(self, db: Session, workflow_run_id: int) -> list[TaskRun]:
+        return (
+            db.query(TaskRun)
+            .filter(TaskRun.workflow_run_id == workflow_run_id)
+            .order_by(TaskRun.id)
+            .all()
         )
