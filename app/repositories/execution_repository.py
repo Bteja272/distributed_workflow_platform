@@ -72,8 +72,12 @@ class ExecutionRepository:
         if error_message:
             task_run.error_message = error_message
         db.add(task_run)
+    
+    def increment_task_retry_count(self, db: Session, task_run: TaskRun) -> None:
+        task_run.retry_count += 1
+        db.add(task_run)
 
-    def get_task_runs_for_workflow_run(self, db: Session, workflow_run_id: int):
+    def get_task_runs_for_workflow_run(self, db: Session, workflow_run_id: int) -> list[TaskRun]:
         return (
             db.query(TaskRun)
             .options(joinedload(TaskRun.workflow_step))
