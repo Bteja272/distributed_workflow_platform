@@ -3,12 +3,14 @@ import time
 from app.core.celery_app import celery_app
 from app.db.session import SessionLocal
 from app.repositories.execution_repository import ExecutionRepository
+from app.services.log_service import LogService
 
 
 @celery_app.task
 def execute_workflow_task(workflow_run_id: int):
     db = SessionLocal()
     repository = ExecutionRepository()
+    log_service = LogService()
 
     try:
         workflow_run = repository.get_workflow_run_by_id(db, workflow_run_id)
@@ -17,6 +19,12 @@ def execute_workflow_task(workflow_run_id: int):
             return
 
         repository.update_workflow_run_status(db, workflow_run, "running")
+        log_service.create_log(
+            db,
+            workflow_run_id=workflow_run_id,
+            log_level="INFO",
+            message="Workflow execution started",
+        )
         db.commit()
 
         task_runs = repository.get_task_runs_for_workflow_run(db, workflow_run_id)
@@ -31,6 +39,13 @@ def execute_workflow_task(workflow_run_id: int):
                 "running",
                 started=True,
                 error_message=None,
+            )
+            log_service.create_log(
+                db,
+                workflow_run_id=workflow_run_id,
+                task_run_id=task_run.id,
+                log_level="INFO",
+                message=f"Task '{step.name}' started",
             )
             db.commit()
 
@@ -65,6 +80,13 @@ def execute_workflow_task(workflow_run_id: int):
                         completed=True,
                         error_message=None,
                     )
+                    log_service.create_log(
+                        db,
+                        workflow_run_id=workflow_run_id,
+                        task_run_id=task_run.id,
+                        log_level="INFO",
+                        message=f"Task '{step.name}' completed successfully",
+                    )
                     db.commit()
 
                     success = True
@@ -79,6 +101,13 @@ def execute_workflow_task(workflow_run_id: int):
                             "retrying",
                             error_message=str(e),
                         )
+                        log_service.create_log(
+                            db,
+                            workflow_run_id=workflow_run_id,
+                            task_run_id=task_run.id,
+                            log_level="WARNING",
+                            message=f"Task '{step.name}' failed. Retrying attempt {task_run.retry_count} of {retry_limit}. Error: {str(e)}",
+                        )
                         db.commit()
 
                         time.sleep(2)
@@ -90,12 +119,19 @@ def execute_workflow_task(workflow_run_id: int):
                             error_message=str(e),
                             completed=True,
                         )
+                        log_service.create_log(
+                            db,
+                            workflow_run_id=workflow_run_id,
+                            task_run_id=task_run.id,
+                            log_level="ERROR",
+                            message=f"Task '{step.name}' failed permanently. Error: {str(e)}",
+                        )
                         db.commit()
 
                         raise
 
             if not success:
-                raise Exception(f"Workflow failed because task_run={task_run.id} failed after retries")
+                raise Exception(f"Workflow failed because task '{step.name}' failed after retries")
 
         repository.update_workflow_run_status(
             db,
@@ -103,9 +139,15 @@ def execute_workflow_task(workflow_run_id: int):
             "completed",
             completed=True,
         )
+        log_service.create_log(
+            db,
+            workflow_run_id=workflow_run_id,
+            log_level="INFO",
+            message="Workflow execution completed successfully",
+        )
         db.commit()
 
-    except Exception:
+    except Exception as e:
         workflow_run = repository.get_workflow_run_by_id(db, workflow_run_id)
         if workflow_run:
             repository.update_workflow_run_status(
@@ -113,6 +155,12 @@ def execute_workflow_task(workflow_run_id: int):
                 workflow_run,
                 "failed",
                 completed=True,
+            )
+            log_service.create_log(
+                db,
+                workflow_run_id=workflow_run_id,
+                log_level="ERROR",
+                message=f"Workflow execution failed. Error: {str(e)}",
             )
             db.commit()
 
