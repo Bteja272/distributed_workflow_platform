@@ -73,9 +73,10 @@ class ExecutionRepository:
             task_run.error_message = error_message
         db.add(task_run)
 
-    def get_task_runs_for_workflow_run(self, db: Session, workflow_run_id: int) -> list[TaskRun]:
+    def get_task_runs_for_workflow_run(self, db: Session, workflow_run_id: int):
         return (
             db.query(TaskRun)
+            .options(joinedload(TaskRun.workflow_step))
             .filter(TaskRun.workflow_run_id == workflow_run_id)
             .order_by(TaskRun.id)
             .all()
