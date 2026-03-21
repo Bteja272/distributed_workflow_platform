@@ -1,9 +1,12 @@
 from celery import Celery
 
+from app.core.config import settings
+
 celery_app = Celery(
     "workflow_engine",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0",
+    broker=settings.REDIS_URL,
+    backend=settings.REDIS_URL,
+    include=["app.workers.tasks"],
 )
 
 celery_app.conf.update(
@@ -13,4 +16,3 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
 )
-celery_app.autodiscover_tasks(["app.workers"])
