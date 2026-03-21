@@ -1,6 +1,9 @@
 # Distributed Workflow Automation Platform
 
-A backend platform for defining, managing, and executing multi-step workflows asynchronously. Workflows are composed of discrete, ordered steps that execute sequentially, with full run tracking, status transitions, and error handling at every stage.
+A backend system for defining and executing multi-step workflows asynchronously,
+with built-in retry logic, failure handling, and execution logging.
+
+Inspired by workflow orchestration tools like Apache Airflow and Temporal.
 
 ---
 
@@ -8,87 +11,97 @@ A backend platform for defining, managing, and executing multi-step workflows as
 
 | Layer | Technology |
 |---|---|
-| API | FastAPI |
-| ORM | SQLAlchemy |
-| Database | PostgreSQL |
+| API | FastAPI (Python 3.11) |
+| Database | PostgreSQL + SQLAlchemy |
 | Task Queue | Celery |
-| Broker | Redis |
-| Migrations | Alembic |
-| Containerization | Docker |
+| Message Broker | Redis |
+| Containerization | Docker & Docker Compose |
+
+---
+
+## Features
+
+- Create and manage multi-step workflows via REST API
+- Asynchronous background execution using Celery workers
+- Configurable per-step retry logic with attempt tracking
+- Sequential step execution with status transitions
+- Persistent execution logs queryable through the API
+- Fully containerized — runs with a single Docker command
 
 ---
 
 ## Project Structure
 ```
 app/
-├── main.py               # FastAPI app entry point
-├── database.py           # DB connection and session management
-├── models/               # SQLAlchemy models
-│   ├── workflow.py
-│   ├── workflow_step.py
-│   ├── workflow_run.py
-│   ├── task_run.py
-│   └── execution_log.py
-├── schemas/              # Pydantic request/response schemas
-├── repositories/         # Database query layer
-├── services/             # Business logic layer
-└── routers/              # API route definitions
+├── api/
+│   └── routes/
+├── core/
+│   ├── config.py
+│   └── celery_app.py
+├── db/
+│   ├── models/
+│   ├── session.py
+│   └── base.py
+├── repositories/
+├── services/
+├── workers/
+│   └── tasks.py
+└── schemas/
 ```
 
 ---
 
 ## Getting Started
 
-### Prerequisites
+### Docker (Recommended)
 
-- Python 3.10+
-- PostgreSQL
-- Redis
-
-### Installation
-
-**1. Clone the repo and install dependencies:**
+Run the full stack with a single command:
 ```bash
-git clone https://github.com/your-username/your-repo.git
-cd your-repo
+docker compose up --build
+```
+
+API docs: http://127.0.0.1:8000/docs
+```bash
+docker compose down  # Stop all services
+```
+
+---
+
+### Local Development
+
+**1. Create and activate a virtual environment:**
+```bash
+python -m venv .venv
+.venv\Scripts\activate      # Windows
+source .venv/bin/activate   # macOS/Linux
+```
+
+**2. Install dependencies:**
+```bash
 pip install -r requirements.txt
 ```
 
-**2. Set up your environment variables:**
+**3. Configure environment variables:**
 ```env
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/distributed_workflow_db
+REDIS_URL=redis://localhost:6379/0
 ```
 
-**3. Apply database migrations:**
-```bash
-alembic upgrade head
-```
-
-**4. Start the server:**
+**4. Start FastAPI:**
 ```bash
 uvicorn app.main:app --reload
 ```
 
-API docs: http://127.0.0.1:8000/docs
-
----
-
-## Database Schema
-
-| Table | Description |
-|---|---|
-| `workflows` | Workflow definitions and metadata |
-| `workflow_steps` | Ordered steps belonging to a workflow |
-| `workflow_runs` | Individual execution instances of a workflow |
-| `task_runs` | Per-step execution records tied to a run |
-| `execution_logs` | Timestamped logs and error messages per task |
+**5. Start Celery worker:**
+```bash
+celery -A app.core.celery_app worker --pool=solo --loglevel=info
+```
 
 ---
 
 ## API Reference
 
 ### Workflows
-
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/workflows` | Create a new workflow |
@@ -96,59 +109,56 @@ API docs: http://127.0.0.1:8000/docs
 | `GET` | `/workflows/{workflow_id}` | Get a workflow by ID |
 
 ### Execution
-
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/workflows/{workflow_id}/execute` | Trigger a workflow execution |
-| `GET` | `/workflow-runs/{run_id}` | Get the status and result of a run |
+| `POST` | `/workflows/{workflow_id}/execute` | Trigger workflow execution |
+| `GET` | `/workflow-runs/{run_id}` | Get run status |
+| `GET` | `/workflow-runs/{run_id}/logs` | Get execution logs |
 
 ---
 
-## How Execution Works
-
-When a workflow is executed, the platform creates a `workflow_run` record and initializes a `task_run` for each step with a `pending` status. Steps then run sequentially through the following lifecycle:
+## Example Workflow
+```json
+{
+  "name": "sample-workflow",
+  "description": "Example workflow",
+  "steps": [
+    {
+      "step_order": 1,
+      "name": "step_one",
+      "step_type": "sleep",
+      "config": { "duration": 1 },
+      "retry_limit": 1
+    },
+    {
+      "step_order": 2,
+      "name": "step_two",
+      "step_type": "fail",
+      "config": {},
+      "retry_limit": 2
+    }
+  ]
+}
 ```
-pending → running → success
-                 → failed
-```
-
-The overall workflow run resolves as:
-- `completed` — all steps succeeded
-- `failed` — one or more steps failed
-
-### Supported Step Types
-
-| Type | Description |
-|---|---|
-| `sleep` | Simulated delay |
-| `python` | Simulated internal task |
-| `http` | Simulated external API call |
-| `fail` | Intentional failure for testing error handling |
 
 ---
 
-## Health & Diagnostic Endpoints
+## Execution Flow
 
-| Endpoint | Description |
-|---|---|
-| `GET /` | Root check |
-| `GET /health` | Service health status |
-| `GET /db-check` | Verifies live database connectivity |
-
----
-
-## Environment Variables
-
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
+1. Workflow is created via the API
+2. An execution request dispatches a Celery task
+3. The worker processes each step sequentially:
+   - Status updated in the database (`pending → running → success / failed`)
+   - Execution events written to logs
+   - Failed steps are retried up to the configured `retry_limit`
+4. Final workflow status (`completed` or `failed`) is persisted
 
 ---
 
 ## Roadmap
 
-- [ ] Async step execution via Celery workers
-- [ ] Retry logic for failed steps
-- [ ] Webhook notifications on run completion
-- [ ] Workflow scheduling (cron-based triggers)
-- [ ] Docker Compose setup for full local stack
+- [ ] Parallel step execution
+- [ ] DAG-based workflow definitions
+- [ ] Monitoring dashboard (Grafana / Prometheus)
+- [ ] Authentication and multi-user support
+- [ ] Workflow visualization UI
