@@ -1,9 +1,44 @@
 import time
 
+import httpx
+
 from app.core.celery_app import celery_app
 from app.db.session import SessionLocal
 from app.repositories.execution_repository import ExecutionRepository
 from app.services.log_service import LogService
+
+
+def execute_step_by_type(step_type: str, config: dict | None):
+    if step_type == "sleep":
+        duration = 2
+        if config and "duration" in config:
+            duration = int(config["duration"])
+        time.sleep(duration)
+
+    elif step_type == "fail":
+        raise Exception("Simulated task failure")
+
+    elif step_type == "http":
+        if not config or "url" not in config:
+            raise Exception("HTTP step requires a 'url' in config")
+
+        method = config.get("method", "GET").upper()
+        timeout = float(config.get("timeout", 10))
+
+        with httpx.Client(timeout=timeout) as client:
+            if method == "GET":
+                response = client.get(config["url"])
+            else:
+                raise Exception(f"Unsupported HTTP method: {method}")
+
+        if response.status_code >= 400:
+            raise Exception(f"HTTP request failed with status {response.status_code}")
+
+    elif step_type == "python":
+        time.sleep(1)
+
+    else:
+        time.sleep(1)
 
 
 @celery_app.task
@@ -53,25 +88,7 @@ def execute_workflow_task(workflow_run_id: int):
 
             for attempt in range(retry_limit + 1):
                 try:
-                    step_type = step.step_type
-
-                    if step_type == "sleep":
-                        duration = 2
-                        if step.config and "duration" in step.config:
-                            duration = int(step.config["duration"])
-                        time.sleep(duration)
-
-                    elif step_type == "fail":
-                        raise Exception("Simulated task failure")
-
-                    elif step_type == "http":
-                        time.sleep(1)
-
-                    elif step_type == "python":
-                        time.sleep(1)
-
-                    else:
-                        time.sleep(1)
+                    execute_step_by_type(step.step_type, step.config)
 
                     repository.update_task_run_status(
                         db,

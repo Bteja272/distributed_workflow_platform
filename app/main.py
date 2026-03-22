@@ -1,20 +1,29 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 
+import os
+from app.api.routes.logs import router as logs_router
 from app.api.routes.workflow_runs import router as workflow_run_router
 from app.api.routes.workflows import router as workflow_router
 from app.db import models  # noqa: F401
 from app.db.base import Base
 from app.db.session import engine
-from app.api.routes.logs import router as logs_router
-
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Distributed Workflow Automation Platform")
+
+@app.on_event("startup")
+def on_startup():
+    # Skip DB creation during tests
+    if os.getenv("TESTING") == "1":
+        return
+
+    Base.metadata.create_all(bind=engine)
+
 
 app.include_router(workflow_router)
 app.include_router(workflow_run_router)
 app.include_router(logs_router)
+
 
 @app.get("/")
 def root():
